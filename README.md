@@ -1,20 +1,14 @@
 # IdeaForge
 
-Generate executable Jupyter Notebooks from an idea and a character/persona image, validate them, and publish them to GitHub.
+IdeaForge converts a text idea (and optionally a character/persona image) into a valid executable Jupyter Notebook **without using any AI model or AI API**.
+
+The generator is deterministic and local. GitHub is used only to store the generated notebook.
 
 ## Stack
-- Frontend: React + Vite + Tailwind CSS
-- Backend: FastAPI
-- AI: Anthropic Claude vision API
-- Notebook validation: nbformat
-- GitHub: PyGithub
+- React + Vite + Tailwind CSS
+- FastAPI
+- nbformat
+- PyGithub
 
-## Local run
-
-Backend: copy backend/.env.example to backend/.env, set ANTHROPIC_API_KEY and GITHUB_TOKEN, install backend/requirements.txt, then run uvicorn main:app --reload --app-dir backend.
-
-Frontend: cd frontend, npm install, npm run dev. The frontend uses VITE_API_URL=http://localhost:8000 by default.
-
-The GitHub connection used by ChatGPT/Composio is not automatically available inside a deployed FastAPI process. For the standalone backend, provide a GitHub token with repository write permission through GITHUB_TOKEN.
-
-Generated notebooks are validated with nbformat before they are pushed.
+## Cost
+Notebook generation itself does not consume AI credits. A GitHub token is required by the backend to publish files to GitHub.

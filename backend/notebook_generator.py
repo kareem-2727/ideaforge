@@ -1,67 +1,32 @@
-import base64
-import json
-import os
 import re
 from typing import Any
-
 import nbformat
-from anthropic import Anthropic
-
-SYSTEM_PROMPT = """You are a Jupyter Notebook architect. Given an idea and a character image, generate a complete, executable Jupyter Notebook in valid JSON (.ipynb format) that:
-- Has a title cell with the idea name
-- Includes the supplied character image displayed in a markdown cell
-- Has 8-12 well-commented code cells that implement or explore the idea
-- Includes a requirements cell listing all pip packages needed
-- Ends with a summary markdown cell
-- Uses best practices, type hints, and docstrings
-- Is self-contained and executable in Google Colab or Jupyter Lab
-Return ONLY raw valid .ipynb JSON. Nothing else."""
 
 def slugify(value: str) -> str:
     value = re.sub(r"[^a-zA-Z0-9\\s_-]", "", value).strip().lower()
     value = re.sub(r"[\\s_-]+", "-", value)
     return value[:80] or "idea"
 
-def extract_json(text: str) -> dict[str, Any]:
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\\s*", "", cleaned)
-        cleaned = re.sub(r"\\s*```$", "", cleaned)
-    return json.loads(cleaned)
-
-def ensure_notebook_structure(notebook: dict[str, Any], image_bytes: bytes, image_mime: str, idea: str) -> dict[str, Any]:
-    notebook.setdefault("nbformat", 4)
-    notebook.setdefault("nbformat_minor", 5)
-    notebook.setdefault("metadata", {})
-    notebook.setdefault("cells", [])
-    cells = notebook["cells"]
-    if not cells or cells[0].get("cell_type") != "markdown":
-        cells.insert(0, nbformat.v4.new_markdown_cell(f"# {idea}"))
-    image_b64 = base64.b64encode(image_bytes).decode("ascii")
-    image_cell = nbformat.v4.new_markdown_cell(f"## Character / Persona\n\n![Uploaded character](data:{image_mime};base64,{image_b64})")
-    if not any("Uploaded character" in "".join(c.get("source", [])) if isinstance(c.get("source"), list) else "Uploaded character" in c.get("source", "") for c in cells if c.get("cell_type") == "markdown"):
-        cells.insert(1, image_cell)
-    code_cells = [c for c in cells if c.get("cell_type") == "code"]
-    if len(code_cells) < 8:
-        raise ValueError(f"Claude returned only {len(code_cells)} code cells; at least 8 are required.")
-    if len(code_cells) > 12:
-        seen = 0
-        for c in cells:
-            if c.get("cell_type") == "code":
-                seen += 1
-                if seen > 12:
-                    cells.remove(c)
-    return notebook
-
-def generate_notebook(idea: str, image_bytes: bytes, image_mime: str) -> tuple[dict[str, Any], str]:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not configured.")
-    client = Anthropic(api_key=api_key)
-    image_data = base64.b64encode(image_bytes).decode("ascii")
-    response = client.messages.create(model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"), max_tokens=16000, system=SYSTEM_PROMPT, messages=[{"role":"user","content":[{"type":"text","text":f"IDEA:\\n{idea}"},{"type":"image","source":{"type":"base64","media_type":image_mime,"data":image_data}}]}])
-    raw = "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
-    notebook = ensure_notebook_structure(extract_json(raw), image_bytes, image_mime, idea)
-    notebook = nbformat.from_dict(notebook)
+def generate_notebook(idea: str, image_bytes: bytes | None = None, image_mime: str | None = None) -> tuple[dict[str, Any], str]:
+    """Create a self-contained notebook locally. No AI or external model is used."""
+    title = idea.strip() or "My Idea"
+    cells = [
+        nbformat.v4.new_markdown_cell(f"# {title}\n\nGenerated automatically by IdeaForge from your idea."),
+        nbformat.v4.new_markdown_cell("## Idea\n\n" + title),
+        nbformat.v4.new_markdown_cell("## Requirements\n\nThis notebook uses only Python's standard library unless you add packages to the list below.\n\n```text\n# Add project-specific packages here\n```"),
+        nbformat.v4.new_code_cell("# Configuration\nfrom pathlib import Path\nfrom typing import Any\n\nPROJECT_NAME = " + repr(title) + "\nprint(f'Project: {PROJECT_NAME}')"),
+        nbformat.v4.new_code_cell("# Input data placeholder\ndata: list[Any] = []\n\n# Add or load the data required by your idea here.\nprint('Data items:', len(data))"),
+        nbformat.v4.new_code_cell("# Core implementation\ndef run_idea() -> dict[str, Any]:\n    \"\"\"Main execution function generated from the supplied idea.\"\"\"\n    return {\"idea\": PROJECT_NAME, \"status\": \"ready for implementation\"}\n\nresult = run_idea()\nprint(result)"),
+        nbformat.v4.new_code_cell("# Validation\nassert isinstance(result, dict)\nassert result.get('idea') == PROJECT_NAME\nprint('Basic validation passed.')"),
+        nbformat.v4.new_code_cell("# Example execution\nexample_result = run_idea()\nprint(example_result)"),
+        nbformat.v4.new_code_cell("# Export\noutput = Path('ideaforge_output.txt')\noutput.write_text(str(result), encoding='utf-8')\nprint(f'Saved: {output.resolve()}')"),
+        nbformat.v4.new_code_cell("# Extension point\n# Add the project-specific algorithms, UI, data processing, or integrations here.\nprint('Notebook structure is ready.')"),
+        nbformat.v4.new_markdown_cell("## Summary\n\nThe notebook was generated locally from the supplied idea. No AI model or AI API is required to create this file.\n\n**Next step:** customize the implementation cells for the exact project requirements."),
+    ]
+    if image_bytes and image_mime:
+        import base64
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        cells.insert(1, nbformat.v4.new_markdown_cell(f"## Character / Persona\n\n![Uploaded character](data:{image_mime};base64,{encoded})"))
+    notebook = nbformat.v4.new_notebook(cells=cells, metadata={"kernelspec":{"display_name":"Python 3","language":"python","name":"python3"},"language_info":{"name":"python"}})
     nbformat.validate(notebook)
-    return notebook, slugify(idea)
+    return notebook, slugify(title)
